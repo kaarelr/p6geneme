@@ -181,6 +181,11 @@ body {
   background: #e65100;
 }
 
+.waypoint-pin--endpoint .waypoint-pin-inner {
+  background: #c43;
+  border: 2px solid #fff;
+}
+
 .recompute-wrap {
   margin-bottom: 0.75rem;
   padding-bottom: 0.75rem;

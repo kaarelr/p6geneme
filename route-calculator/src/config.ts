@@ -1,6 +1,6 @@
-/** Püssi motodrome area — WGS84 */
-export const START_LON = 27.045;
-export const START_LAT = 59.358;
+/** Püssi — WGS84 town centre (Wikidata Q172263; matches et.wikipedia infobox 59°22′N 27°3′E) */
+export const START_LON = 27.049167;
+export const START_LAT = 59.360278;
 
 /** Event time budget (seconds) */
 export const DEFAULT_TIME_BUDGET_S = 86_400;

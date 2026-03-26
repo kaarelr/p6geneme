@@ -157,14 +157,14 @@ function readPanelEffectiveWalkingBudgetS(): number | undefined {
   const sleepDur = Number(
     panel.querySelector<HTMLInputElement>("#sleep-duration-h")?.value,
   );
-  const sleepDurN = Number.isFinite(sleepDur) ? sleepDur : 8;
+  const sleepDurN = Number.isFinite(sleepDur) ? sleepDur : 6;
   const breakInt =
     Number(panel.querySelector<HTMLInputElement>("#break-interval-min")?.value) ||
-    120;
+    60;
   const breakDur = Number(
     panel.querySelector<HTMLInputElement>("#break-duration-min")?.value,
   );
-  const breakDurN = Number.isFinite(breakDur) ? breakDur : 30;
+  const breakDurN = Number.isFinite(breakDur) ? breakDur : 5;
   return effectiveWalkingBudgetS({
     totalElapsedH: totalH,
     sleepIntervalH: sleepInt,
@@ -184,14 +184,14 @@ function updateBudgetSummary(): void {
   const sleepDur = Number(
     panel.querySelector<HTMLInputElement>("#sleep-duration-h")?.value,
   );
-  const sleepDurN = Number.isFinite(sleepDur) ? sleepDur : 8;
+  const sleepDurN = Number.isFinite(sleepDur) ? sleepDur : 6;
   const breakInt =
     Number(panel.querySelector<HTMLInputElement>("#break-interval-min")?.value) ||
-    120;
+    60;
   const breakDur = Number(
     panel.querySelector<HTMLInputElement>("#break-duration-min")?.value,
   );
-  const breakDurN = Number.isFinite(breakDur) ? breakDur : 30;
+  const breakDurN = Number.isFinite(breakDur) ? breakDur : 5;
   const walkingS = effectiveWalkingBudgetS({
     totalElapsedH: totalH,
     sleepIntervalH: sleepInt,
@@ -256,6 +256,10 @@ function collectPlannedWaypoints(
     if (showBreak) {
       for (let k = 1; k * breakIntS <= maxWalkS + 1e-6; k++) {
         const t = k * breakIntS;
+        if (showSleep) {
+          const rem = t % sleepIntS;
+          if (rem < 1 || rem > sleepIntS - 1) continue;
+        }
         const pos = positionAtTime(times, coordsLonLat, t);
         if (!pos) continue;
         const [lon, lat] = pos;
@@ -379,7 +383,7 @@ function attachExportGpxHandler(): void {
       8;
     const breakInt =
       Number(panel.querySelector<HTMLInputElement>("#break-interval-min")?.value) ||
-      120;
+      60;
     const showSleep =
       panel.querySelector<HTMLInputElement>("#show-sleep")?.checked ?? true;
     const showBreak =
@@ -536,6 +540,10 @@ function redrawWaypoints(
   if (times && times.length === coordsLonLat.length && showBreak) {
     for (let k = 1; k * breakS <= maxT + 1e-6; k++) {
       const t = k * breakS;
+      if (showSleep) {
+        const rem = t % sleepS;
+        if (rem < 1 || rem > sleepS - 1) continue;
+      }
       const pos = positionAtTime(times, coordsLonLat, t);
       if (!pos) continue;
       const [lon, lat] = pos;
@@ -648,15 +656,15 @@ async function loadRoute(options?: { bustCache?: boolean }): Promise<void> {
       </div>
       <div class="waypoint-row">
         <label for="sleep-duration-h">Ööbimise kestus (h)</label>
-        <input type="number" id="sleep-duration-h" min="0" max="24" step="0.5" value="8" />
+        <input type="number" id="sleep-duration-h" min="0" max="24" step="0.5" value="6" />
       </div>
       <div class="waypoint-row">
         <label for="break-interval-min">Paus iga (min käimist)</label>
-        <input type="number" id="break-interval-min" min="15" max="720" step="15" value="120" />
+        <input type="number" id="break-interval-min" min="15" max="720" step="15" value="60" />
       </div>
       <div class="waypoint-row">
         <label for="break-duration-min">Pausi kestus (min)</label>
-        <input type="number" id="break-duration-min" min="0" max="180" step="5" value="30" />
+        <input type="number" id="break-duration-min" min="0" max="180" step="5" value="5" />
       </div>
       <div class="waypoint-checks">
         <label><input type="checkbox" id="show-sleep" checked /> Ööbimised kaardil</label>
@@ -692,7 +700,7 @@ async function loadRoute(options?: { bustCache?: boolean }): Promise<void> {
       travelTimeS,
       roadCrossings,
       () => Number(elSleepH.value) || 8,
-      () => Number(elBreakIntMin.value) || 120,
+      () => Number(elBreakIntMin.value) || 60,
       elShowSleep.checked,
       elShowBreak.checked,
       elShowRoad.checked,
