@@ -1,0 +1,14 @@
+{
+  "name": "p6geneme",
+  "private": true,
+  "workspaces": [
+    "route-calculator"
+  ],
+  "scripts": {
+    "etak:download": "yarn workspace route-calculator etak:download",
+    "etak:graph": "yarn workspace route-calculator etak:graph",
+    "route:compute": "yarn workspace route-calculator route:compute",
+    "dev": "yarn workspace route-calculator dev",
+    "trail-map:serve": "python3 -m http.server 3456 --directory trail-map"
+  }
+}

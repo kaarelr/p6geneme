@@ -1,0 +1,19 @@
+{
+  "name": "Trail map — Maa-amet",
+  "short_name": "Trail map",
+  "description": "View GPX trails on Estonian Land Board maps, with offline caching.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f5f5f5",
+  "theme_color": "#1a5f4a",
+  "icons": [
+    {
+      "src": "icons/map.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

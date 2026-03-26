@@ -1,0 +1,229 @@
+:root {
+  --panel-bg: rgba(255, 255, 255, 0.94);
+  --panel-border: rgba(0, 0, 0, 0.08);
+  --accent: #1a5f4a;
+  --danger: #b33;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  font-size: 15px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#map {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+}
+
+/* Grayscale topo (hallkaart) over color topo — Maa-amet reljeef hillshade is LEST-only, not @GMC */
+.leaflet-pane.leaflet-terrain-blend-pane {
+  opacity: 0.52;
+  pointer-events: none;
+}
+
+.leaflet-pane.leaflet-terrain-blend-pane .leaflet-tile-container img {
+  mix-blend-mode: multiply;
+}
+
+.leaflet-control-attribution {
+  font-size: 10px;
+  max-width: 50vw;
+}
+
+.panel {
+  position: fixed;
+  z-index: 1000;
+  top: env(safe-area-inset-top, 0);
+  left: env(safe-area-inset-left, 0);
+  right: env(safe-area-inset-right, 0);
+  max-height: 42vh;
+  overflow: auto;
+  margin: 8px;
+  padding: 12px 14px;
+  background: var(--panel-bg);
+  border-radius: 12px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--panel-border);
+}
+
+.panel h1 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.panel-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.panel-row:last-child {
+  margin-bottom: 0;
+}
+
+label {
+  font-size: 0.85rem;
+  color: #333;
+}
+
+button,
+.file-btn {
+  font: inherit;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--panel-border);
+  background: #fff;
+  cursor: pointer;
+}
+
+button.primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.file-btn {
+  display: inline-block;
+}
+
+.file-btn input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+}
+
+select {
+  font: inherit;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--panel-border);
+  max-width: 100%;
+}
+
+.stats {
+  font-size: 0.8rem;
+  color: #444;
+  line-height: 1.4;
+}
+
+#map-mode-note {
+  margin: 8px 0 0;
+  font-size: 0.72rem;
+  color: #666;
+  max-width: 36em;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #eee;
+}
+
+.status-pill.online {
+  background: #d8f0e4;
+  color: #0a5;
+}
+
+.status-pill.offline {
+  background: #fde8e8;
+  color: var(--danger);
+}
+
+.progress-wrap {
+  width: 100%;
+  height: 6px;
+  background: #e8e8e8;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 6px;
+  display: none;
+}
+
+.progress-wrap.visible {
+  display: block;
+}
+
+.progress-bar {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  transition: width 0.15s ease;
+}
+
+.banner-ios {
+  display: none;
+  margin-top: 10px;
+  padding: 10px;
+  background: #fff8e6;
+  border: 1px solid #e6d08a;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.banner-ios.visible {
+  display: block;
+}
+
+.banner-ios button {
+  margin-top: 8px;
+}
+
+.trail-pin--start .trail-pin-inner,
+.trail-pin--end .trail-pin-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+.trail-pin--start .trail-pin-inner {
+  background: #1a7f3e;
+}
+
+.trail-pin--end .trail-pin-inner {
+  background: #c43;
+}
+
+.toggle-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+}
+
+@media (min-width: 640px) {
+  .panel {
+    max-width: 380px;
+    right: auto;
+  }
+}

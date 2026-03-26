@@ -1,0 +1,219 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  font-family:
+    system-ui,
+    -apple-system,
+    Segoe UI,
+    Roboto,
+    sans-serif;
+}
+
+#app {
+  display: flex;
+  height: 100%;
+}
+
+#panel {
+  width: 280px;
+  flex-shrink: 0;
+  padding: 1rem;
+  background: #f5f5f5;
+  border-right: 1px solid #ddd;
+  overflow: auto;
+}
+
+#panel h1 {
+  margin: 0 0 0.75rem;
+  font-size: 1.1rem;
+}
+
+#panel dl {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+#panel dt {
+  color: #555;
+  margin-top: 0.5rem;
+}
+
+#panel dd {
+  margin: 0.15rem 0 0;
+  font-weight: 600;
+}
+
+#panel .msg {
+  margin: 0 0 0.5rem;
+}
+
+#panel pre {
+  font-size: 0.75rem;
+  background: #fff;
+  padding: 0.5rem;
+  border-radius: 4px;
+  overflow: auto;
+}
+
+#map {
+  flex: 1;
+  min-height: 100%;
+}
+
+.panel-note {
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
+  color: #666;
+  line-height: 1.35;
+}
+
+.waypoint-fieldset {
+  margin: 0.75rem 0 0;
+  padding: 0.5rem 0.65rem 0.65rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+.waypoint-fieldset legend {
+  padding: 0 0.35rem;
+  font-weight: 600;
+  font-size: 0.8rem;
+}
+
+.waypoint-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+
+.waypoint-row label {
+  flex: 1;
+  color: #444;
+}
+
+.waypoint-row input[type="number"] {
+  width: 5rem;
+  min-width: 4.5rem;
+  font: inherit;
+  padding: 0.25rem 0.35rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.budget-summary {
+  margin: 0.35rem 0 0.15rem;
+  font-size: 0.78rem;
+  color: #333;
+  line-height: 1.35;
+}
+
+.export-gpx-btn {
+  margin-top: 0.65rem;
+  font: inherit;
+  padding: 0.45rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+  background: #fff;
+  color: #1a5f4a;
+  cursor: pointer;
+  width: 100%;
+  font-weight: 600;
+}
+
+.export-gpx-btn:hover {
+  background: #eef5f3;
+  border-color: #1a5f4a;
+}
+
+.waypoint-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+.waypoint-checks label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+  color: #333;
+}
+
+.waypoint-checks input {
+  margin: 0;
+}
+
+.waypoint-pin .waypoint-pin-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 4px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+.waypoint-pin--sleep .waypoint-pin-inner {
+  background: #5e35b1;
+}
+
+.waypoint-pin--break .waypoint-pin-inner {
+  background: #f9a825;
+  color: #222;
+  border-color: #fff;
+}
+
+.waypoint-pin--road .waypoint-pin-inner {
+  background: #e65100;
+}
+
+.recompute-wrap {
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid #ddd;
+}
+
+.recompute-btn {
+  font: inherit;
+  padding: 0.45rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid #1a5f4a;
+  background: #1a5f4a;
+  color: #fff;
+  cursor: pointer;
+  width: 100%;
+}
+
+.recompute-btn:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.recompute-btn:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.recompute-hint {
+  margin-top: 0.35rem !important;
+  margin-bottom: 0 !important;
+}
+
+#recompute-status:not(:empty) {
+  color: #b33;
+  font-size: 0.8rem;
+  margin-top: 0.35rem !important;
+}

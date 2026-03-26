@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#1a5f4a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Trail map" />
+  <meta name="description" content="GPX trails on Maa-amet maps, offline-capable PWA" />
+  <title>Trail map — Maa-amet</title>
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="apple-touch-icon" href="./icons/map.svg" />
+  <link rel="icon" type="image/svg+xml" href="./icons/map.svg" />
+  <link rel="stylesheet" href="./vendor/leaflet.css" />
+  <link rel="stylesheet" href="./style.css" />
+  <script src="./vendor/leaflet.js"></script>
+  <script src="./vendor/proj4.js"></script>
+  <script src="./vendor/proj4leaflet.js"></script>
+</head>
+<body>
+  <div id="map" role="application" aria-label="Map"></div>
+
+  <div class="panel" id="panel">
+    <h1>Trail map</h1>
+
+    <div class="panel-row">
+      <span class="status-pill" id="net-status" aria-live="polite">Checking…</span>
+      <span class="stats" id="storage-stats"></span>
+    </div>
+
+    <div class="panel-row">
+      <label class="file-btn">
+        <span class="primary" style="padding:8px 12px;border-radius:8px;display:inline-block">Load GPX</span>
+        <input type="file" id="gpx-input" accept=".gpx,application/gpx+xml" />
+      </label>
+      <button type="button" id="btn-clear-gpx" title="Remove track from map">Clear track</button>
+    </div>
+
+    <div class="panel-row">
+      <label for="base-layer">Base</label>
+      <select id="base-layer" aria-label="Base map layer">
+        <option value="lest" selected>Best relief: topo + reljeef (L-EST)</option>
+        <option value="kaart">Topo color (Web Mercator)</option>
+        <option value="hallkaart">Topo grayscale (Web Mercator)</option>
+        <option value="foto">Ortofoto</option>
+        <option value="hybriid">Hybrid</option>
+      </select>
+      <span class="toggle-inline" id="terrain-toggle-wrap">
+        <input type="checkbox" id="terrain-toggle" checked />
+        <label for="terrain-toggle" id="terrain-hint">Reljeef hillshade</label>
+      </span>
+    </div>
+
+    <div class="panel-row">
+      <button type="button" class="primary" id="btn-offline" disabled>Save for offline</button>
+      <button type="button" id="btn-install" hidden>Install app</button>
+    </div>
+    <div class="stats" id="offline-summary" hidden></div>
+    <div class="progress-wrap" id="progress-wrap" aria-hidden="true">
+      <div class="progress-bar" id="progress-bar"></div>
+    </div>
+
+    <div class="stats" id="track-stats"></div>
+    <p class="stats" id="map-mode-note">
+      Default uses Estonian L-EST (EPSG:3301) so the real <strong>reljeef</strong> hillshade works. Max zoom 14.
+      Web Mercator layers zoom to 18. Offline save loads only tiles along your GPX (narrow corridor) and the
+      <strong>current base layer</strong> (plus grayscale blend if enabled on color topo).
+    </p>
+
+    <div class="banner-ios" id="ios-banner">
+      <strong>For reliable offline maps on iPhone:</strong> tap Share → Add to Home Screen, then open the app from your home screen.
+      <button type="button" id="ios-banner-dismiss">Got it</button>
+    </div>
+  </div>
+
+  <script src="./vendor/gpx.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
