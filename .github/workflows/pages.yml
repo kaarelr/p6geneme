@@ -16,6 +16,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
 
@@ -29,6 +30,21 @@ jobs:
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
+
+      - name: Cache ETAK raw data, graph, merged GeoJSON
+        uses: actions/cache@v4
+        with:
+          path: route-calculator/data
+          key: etak-data-${{ hashFiles('route-calculator/scripts/**/*.ts', 'route-calculator/src/config.ts', 'yarn.lock') }}
+
+      - name: Download ETAK, build graph, compute route
+        env:
+          # Optional repo secret: EPSG:3301 bbox "minX,minY,maxX,maxY" — limits WFS fetch (faster CI than all Estonia).
+          ETAK_BBOX: ${{ secrets.ETAK_BBOX }}
+        run: |
+          yarn workspace route-calculator etak:download
+          yarn workspace route-calculator etak:graph
+          yarn workspace route-calculator route:compute
 
       - name: Build route-calculator
         env:

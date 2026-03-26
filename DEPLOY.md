@@ -29,3 +29,17 @@ CI=true yarn workspace route-calculator build
 ```
 
 Serve `_site` locally after running the same “Assemble site” steps as the workflow, or use `vite preview` only with matching base (CI build output is meant for `/p6geneme/route-calculator/`).
+
+## Route calculator: ETAK pipeline on CI
+
+The hosted map reads `route.geojson` from the Vite `public/` output. That file is produced by:
+
+`etak:download` → `etak:graph` → `route:compute`
+
+The Pages workflow runs these before `vite build`. `route-calculator/data/` is **gitignored** locally; on GitHub Actions a **cache** keyed on scripts + `config.ts` + lockfile avoids re-downloading ETAK on every push.
+
+### Optional: `ETAK_BBOX` repository secret
+
+Without it, `etak:download` requests all ETAK road features the WFS returns (all of Estonia), which can make the **first** workflow run very slow.
+
+To restrict the bounding box, add a [repository secret](https://docs.github.com/en/actions/security-guides/using-secrets-in-github-actions#creating-secrets-for-a-repository) named `ETAK_BBOX` with a single value: **`minX,minY,maxX,maxY` in EPSG:3301**, same format as the WFS `BBOX` parameter (comma-separated numbers).

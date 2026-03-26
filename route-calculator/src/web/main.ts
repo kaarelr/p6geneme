@@ -559,9 +559,10 @@ function redrawWaypoints(
 async function loadRoute(options?: { bustCache?: boolean }): Promise<void> {
   clearRouteLayers();
 
+  const base = import.meta.env.BASE_URL;
   const geoUrl = options?.bustCache
-    ? `/route.geojson?t=${Date.now()}`
-    : "/route.geojson";
+    ? `${base}route.geojson?t=${Date.now()}`
+    : `${base}route.geojson`;
 
   let fc: FeatureCollection;
   try {
