@@ -1,8 +1,22 @@
 import { spawn } from "node:child_process";
+import type { IncomingMessage } from "node:http";
 import { createRequire } from "node:module";
 import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
+
+function readRequestBody(req: IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer | string) => {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+    req.on("end", () => {
+      resolve(Buffer.concat(chunks).toString("utf8"));
+    });
+    req.on("error", reject);
+  });
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -56,6 +70,8 @@ function runRouteCompute(
 
 export default defineConfig({
   root: __dirname,
+  /** GitHub project site: kaarelr.github.io/p6geneme/route-calculator/ */
+  base: process.env.CI === "true" ? "/p6geneme/route-calculator/" : "/",
   publicDir: "public",
   server: {
     port: 5173,
@@ -78,27 +94,38 @@ export default defineConfig({
             next();
             return;
           }
-          const host = req.headers.host ?? "localhost";
-          let pathname: string;
-          let searchParams: URLSearchParams;
-          try {
-            const u = new URL(req.url ?? "", `http://${host}`);
-            pathname = u.pathname;
-            searchParams = u.searchParams;
-          } catch {
-            next();
-            return;
-          }
+          const full = req.url ?? "";
+          const qMark = full.indexOf("?");
+          const pathname = qMark === -1 ? full : full.slice(0, qMark);
           if (pathname !== "/api/recompute-route") {
             next();
             return;
           }
-          const tb = searchParams.get("timeBudgetS");
+
           let timeBudgetS: number | undefined;
-          if (tb !== null && tb !== "") {
-            const n = Number.parseFloat(tb);
+          const qs = qMark === -1 ? "" : full.slice(qMark + 1);
+          const fromQuery = new URLSearchParams(qs).get("timeBudgetS");
+          if (fromQuery !== null && fromQuery !== "") {
+            const n = Number.parseFloat(fromQuery);
             if (Number.isFinite(n) && n >= 60) timeBudgetS = n;
           }
+
+          const ct = req.headers["content-type"] ?? "";
+          if (ct.includes("application/json")) {
+            try {
+              const raw = await readRequestBody(req);
+              if (raw) {
+                const j = JSON.parse(raw) as { timeBudgetS?: unknown };
+                if (j.timeBudgetS !== undefined && j.timeBudgetS !== null) {
+                  const n = Number(j.timeBudgetS);
+                  if (Number.isFinite(n) && n >= 60) timeBudgetS = n;
+                }
+              }
+            } catch {
+              /* ignore bad JSON */
+            }
+          }
+
           const result = await runRouteCompute(timeBudgetS);
           res.setHeader("Content-Type", "application/json; charset=utf-8");
           if (result.ok) {

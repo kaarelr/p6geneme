@@ -1,0 +1,77 @@
+name: Deploy GitHub Pages
+
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: yarn
+
+      - name: Enable Yarn (Corepack)
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Build route-calculator
+        env:
+          CI: "true"
+        run: yarn workspace route-calculator build
+
+      - name: Assemble site
+        run: |
+          mkdir -p _site/trail-map _site/route-calculator
+          cp -R trail-map/. _site/trail-map/
+          cp -R route-calculator/dist/web/. _site/route-calculator/
+          cat > _site/index.html <<'HTML'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <title>p6geneme</title>
+            <style>
+              body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+              a { color: #1a5f4a; }
+            </style>
+          </head>
+          <body>
+            <h1>p6geneme</h1>
+            <ul>
+              <li><a href="trail-map/">Trail map (PWA)</a></li>
+              <li><a href="route-calculator/">Route calculator</a></li>
+            </ul>
+          </body>
+          </html>
+          HTML
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
