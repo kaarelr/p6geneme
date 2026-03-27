@@ -9,7 +9,7 @@ export type HighwayProximityWarning = {
   midY: number;
 };
 
-/** True if midpoint of segment AB is within `bufferM` of any põhimaantee segment */
+/** True if midpoint of segment AB is within `bufferM` of any highway segment */
 export function midpointNearAnySegment(
   ax: number,
   ay: number,
@@ -29,7 +29,7 @@ export function midpointNearAnySegment(
 }
 
 /**
- * One marker per contiguous run of path legs whose midpoint lies within `bufferM` of a põhimaantee
+ * One marker per contiguous run of path legs whose midpoint lies within `bufferM` of a highway
  * segment. Avoids dozens of stacked warnings when the route runs parallel to a highway.
  */
 export function highwayProximityWarningsMerged(

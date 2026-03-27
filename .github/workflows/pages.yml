@@ -49,6 +49,9 @@ jobs:
       - name: Build route-calculator
         env:
           CI: "true"
+          # Optional: base URL of the Fly.io route API (no trailing slash), e.g. https://p6geneme-route-api.fly.dev
+          # Set repository secret ROUTE_API_URL so the static app can call POST /api/recompute-route and /api/rebuild-graph.
+          VITE_API_URL: ${{ secrets.ROUTE_API_URL }}
         run: yarn workspace route-calculator build
 
       - name: Assemble site

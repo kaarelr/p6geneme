@@ -1,0 +1,10 @@
+node_modules
+route-calculator/node_modules
+route-calculator/dist
+route-calculator/data/etak-raw
+route-calculator/data/etak-roads.geojson
+trail-map
+.git
+.github
+*.md
+.vscode

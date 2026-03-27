@@ -8,10 +8,15 @@
     "etak:graph": "tsx scripts/build-graph.ts",
     "route:compute": "tsx scripts/compute-route.ts",
     "dev": "vite",
+    "build:server": "tsc -p tsconfig.build.json",
     "build": "tsc -p tsconfig.build.json && vite build",
+    "server": "node dist/lib/server/index.js",
+    "server:dev": "tsx src/server/index.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@fastify/cors": "^10.0.2",
+    "fastify": "^5.2.1",
     "proj4": "^2.15.0"
   },
   "devDependencies": {

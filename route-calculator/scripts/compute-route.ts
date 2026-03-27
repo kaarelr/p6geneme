@@ -1,27 +1,17 @@
 import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Feature, FeatureCollection } from "geojson";
+import type { LineString, Point } from "geojson";
 import {
   DEFAULT_TIME_BUDGET_S,
   PATHS,
   START_LAT,
   START_LON,
 } from "../src/config.js";
-import {
-  highwayProximityWarningsMerged,
-  type Segment2D,
-} from "../src/geo/buffer.js";
-import { euclideanM } from "../src/geo/distance.js";
-import { epsg3301ToWgs84, wgs84ToEpsg3301 } from "../src/geo/proj.js";
-import {
-  bestNodeWithinBudget,
-  dijkstra,
-  findNearestNode,
-  reconstructPath,
-} from "../src/graph/dijkstra.js";
+import type { Segment2D } from "../src/geo/buffer.js";
 import { readGraphBin } from "../src/graph/graph-io.js";
 import { buildRouteGpx } from "../src/gpx/formatRoute.js";
+import { computeRouteFeatureCollection } from "../src/route/compute.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, "..");
@@ -38,9 +28,7 @@ async function main(): Promise<void> {
   const lon = Number.parseFloat(process.env.START_LON ?? "") || START_LON;
   const lat = Number.parseFloat(process.env.START_LAT ?? "") || START_LAT;
 
-  const [sx, sy] = wgs84ToEpsg3301(lon, lat);
   const g = await readGraphBin(graphPath);
-  const start = findNearestNode(g, sx, sy);
 
   let pohi: Segment2D[] = [];
   try {
@@ -49,86 +37,41 @@ async function main(): Promise<void> {
     /* optional */
   }
 
-  console.error(`Start node ${start} near (${sx.toFixed(1)}, ${sy.toFixed(1)})`);
   const t0 = performance.now();
-  const { dist, parent } = dijkstra(g, start);
-  console.error(`Dijkstra ${((performance.now() - t0) / 1000).toFixed(2)}s`);
+  const fc = computeRouteFeatureCollection({
+    graph: g,
+    pohiSegments: pohi,
+    startLon: lon,
+    startLat: lat,
+    timeBudgetS: budget,
+  });
+  console.error(`Route compute ${((performance.now() - t0) / 1000).toFixed(2)}s`);
 
-  const end = bestNodeWithinBudget(g, dist, budget, sx, sy);
-  if (end < 0) {
-    console.error("No reachable node within budget.");
+  const lineFeat = fc.features.find((f) => f.geometry?.type === "LineString");
+  const lineGeom = lineFeat?.geometry as LineString | undefined;
+  if (!lineGeom?.coordinates?.length) {
+    console.error("computeRouteFeatureCollection returned no LineString.");
     process.exit(1);
   }
+  const coordsWgs = lineGeom.coordinates as [number, number][];
+  const props = (lineFeat?.properties ?? {}) as Record<string, unknown>;
+  const cumulativeTimeS = props.cumulativeTimeS as number[];
+  const straightM = Number(props.straightLineM ?? 0);
+  const pathLenM = Number(props.pathLengthM ?? 0);
+  const travelTimeS = Number(props.travelTimeS ?? 0);
+  const bufferWarningsCount = Number(props.bufferWarnings500m ?? 0);
 
-  const nodes = reconstructPath(parent, end);
-  const coords3301: [number, number][] = nodes.map((id) => [
-    g.nodeX[id]!,
-    g.nodeY[id]!,
-  ]);
-  const coordsWgs: [number, number][] = coords3301.map(([x, y]) => {
-    const [lo, la] = epsg3301ToWgs84(x, y);
-    return [lo, la];
-  });
-  const cumulativeTimeS = nodes.map((id) => dist[id]!);
-
-  let pathLenM = 0;
-  for (let i = 0; i < coords3301.length - 1; i++) {
-    const [x0, y0] = coords3301[i]!;
-    const [x1, y1] = coords3301[i + 1]!;
-    pathLenM += euclideanM(x0, y0, x1, y1);
-  }
-
-  const straightM = euclideanM(sx, sy, g.nodeX[end]!, g.nodeY[end]!);
-  const travelTimeS = dist[end]!;
-
-  const BUFFER_M = 500;
-  const bufferWarnings = highwayProximityWarningsMerged(
-    coords3301,
-    pohi,
-    BUFFER_M,
-  );
-
-  const routeLine: Feature = {
-    type: "Feature",
-    properties: {
-      straightLineM: straightM,
-      pathLengthM: pathLenM,
-      travelTimeS,
-      timeBudgetS: budget,
-      bufferWarnings500m: bufferWarnings.length,
-      cumulativeTimeS,
-      start: { lon, lat },
-      end: {
-        lon: coordsWgs[coordsWgs.length - 1]![0],
-        lat: coordsWgs[coordsWgs.length - 1]![1],
-      },
-    },
-    geometry: {
-      type: "LineString",
-      coordinates: coordsWgs,
-    },
-  };
-
-  const crossingFeatures: Feature[] = bufferWarnings.map((w, idx) => {
-    const [lo, la] = epsg3301ToWgs84(w.midX, w.midY);
-    return {
-      type: "Feature",
-      properties: {
-        type: "road_crossing",
-        leg: w.leg,
-        index: idx,
-      },
-      geometry: {
-        type: "Point",
-        coordinates: [lo, la],
-      },
-    };
-  });
-
-  const fc: FeatureCollection = {
-    type: "FeatureCollection",
-    features: [routeLine, ...crossingFeatures],
-  };
+  const roadCrossingPoints = fc.features
+    .filter(
+      (f) =>
+        f.geometry?.type === "Point" &&
+        (f.properties as Record<string, unknown> | null)?.type ===
+          "road_crossing",
+    )
+    .map((f) => {
+      const c = (f.geometry as Point).coordinates;
+      return { lon: c[0]!, lat: c[1]! };
+    });
 
   await mkdir(dirname(outPath), { recursive: true });
   await writeFile(outPath, JSON.stringify(fc, null, 2), "utf8");
@@ -138,8 +81,8 @@ async function main(): Promise<void> {
     `Straight-line: ${(straightM / 1000).toFixed(2)} km`,
     `Path: ${(pathLenM / 1000).toFixed(2)} km`,
     `Est. time: ${(travelTimeS / 3600).toFixed(2)} h`,
-    bufferWarnings.length
-      ? `500 m buffer warnings: ${bufferWarnings.length}`
+    bufferWarningsCount
+      ? `500 m buffer warnings: ${bufferWarningsCount}`
       : null,
   ]
     .filter(Boolean)
@@ -150,23 +93,22 @@ async function main(): Promise<void> {
     description: gpxDesc,
     coordinates: coordsWgs,
     cumulativeTimeS,
-    roadCrossings: bufferWarnings.map((w, idx) => {
-      const [lo, la] = epsg3301ToWgs84(w.midX, w.midY);
-      return {
-        lon: lo,
-        lat: la,
-        name: `Põhimaantee lähedus (${idx + 1})`,
-        sym: "Danger Area",
-      };
-    }),
+    roadCrossings: roadCrossingPoints.map((p, idx) => ({
+      lon: p.lon,
+      lat: p.lat,
+      name: `Põhimaantee lähedus (${idx + 1})`,
+      sym: "Danger Area",
+    })),
   });
   await writeFile(gpxPath, gpxXml, "utf8");
   console.error(`Wrote ${PATHS.routeGpx}`);
   console.error(
     `Straight-line: ${(straightM / 1000).toFixed(2)} km | Path: ${(pathLenM / 1000).toFixed(2)} km | Time: ${(travelTimeS / 3600).toFixed(2)} h`,
   );
-  if (bufferWarnings.length)
-    console.error(`500 m buffer warnings (midpoints near põhimaantee): ${bufferWarnings.length}`);
+  if (bufferWarningsCount)
+    console.error(
+      `500 m buffer warnings (midpoints near highway): ${bufferWarningsCount}`,
+    );
 }
 
 main().catch((e) => {

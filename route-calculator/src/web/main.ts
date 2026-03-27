@@ -2,7 +2,26 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import type { Feature, FeatureCollection, LineString, Point } from "geojson";
 import { START_LAT, START_LON } from "../config.js";
+import { DEFAULT_GROUND_SPEEDS_KMH } from "../etak/speed.js";
+import { Teekate } from "../etak/types.js";
 import "./web.css";
+
+const API_BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
+
+function apiUrl(path: string): string {
+  const p = path.startsWith("/") ? path : `/${path}`;
+  return `${API_BASE}${p}`;
+}
+
+/** Shown on production static build when API base URL was not baked in (GitHub Pages cannot host /api). */
+const API_SETUP_NOTE =
+  import.meta.env.DEV || API_BASE
+    ? ""
+    : `<p class="panel-note">API nupud vajavad <code>VITE_API_URL</code> (nt Fly.io); määra GitHub secret <code>ROUTE_API_URL</code> ja ehita uuesti.</p>`;
+
+/** User-chosen start (map click / drag); sent to API on recompute / rebuild. */
+let userStartLon = START_LON;
+let userStartLat = START_LAT;
 
 const panel = document.querySelector<HTMLElement>("#panel")!;
 
@@ -84,8 +103,40 @@ const map = L.map("map", {
   zoomControl: true,
   minZoom: 6,
   maxZoom: 19,
-}).setView([START_LAT, START_LON], 12);
+}).setView([userStartLat, userStartLon], 12);
 baseKaart.addTo(map);
+
+const startIcon = L.divIcon({
+  className: "start-point-marker",
+  html: '<div class="start-point-marker-inner" aria-hidden="true"></div>',
+  iconSize: [22, 22],
+  iconAnchor: [11, 11],
+});
+
+const startMarker = L.marker([userStartLat, userStartLon], {
+  draggable: true,
+  zIndexOffset: 1000,
+  title: "Stardipunkt — lohista või kliki kaardil",
+  icon: startIcon,
+}).addTo(map);
+
+startMarker.bindPopup("Stardipunkt — kliki kaardil või lohista");
+
+function syncStartMarkerFromUser(): void {
+  startMarker.setLatLng([userStartLat, userStartLon]);
+}
+
+startMarker.on("dragend", () => {
+  const ll = startMarker.getLatLng();
+  userStartLon = ll.lng;
+  userStartLat = ll.lat;
+});
+
+map.on("click", (e: L.LeafletMouseEvent) => {
+  userStartLon = e.latlng.lng;
+  userStartLat = e.latlng.lat;
+  startMarker.setLatLng(e.latlng);
+});
 
 L.control
   .layers(
@@ -100,19 +151,58 @@ L.control
   )
   .addTo(map);
 
-L.circleMarker([START_LAT, START_LON], { radius: 8, color: "#1565c0", fillOpacity: 0.9 })
-  .addTo(map)
-  .bindPopup("Stardipunkt (ligikaudu)");
-
 let routePolyline: L.Polyline | null = null;
 
-const recomputeBlock = import.meta.env.DEV
-  ? `<div class="recompute-wrap">
+const TEEKATE_CODES = [
+  Teekate.Pusikate,
+  Teekate.Kruuskate,
+  Teekate.Pinnatud,
+  Teekate.Pinnas,
+] as const;
+
+const TEEKATE_LABEL_ET: Record<number, string> = {
+  [Teekate.Pusikate]: "Pusikate",
+  [Teekate.Kruuskate]: "Kruuskate",
+  [Teekate.Pinnatud]: "Pinnatud",
+  [Teekate.Pinnas]: "Pinnas",
+};
+
+/** Last speeds used for graph rebuild; keeps inputs after panel re-render. */
+let lastGroundSpeedsKmh: Record<number, number> | null = null;
+
+function groundSpeedInputValue(code: number): number {
+  const fromLast = lastGroundSpeedsKmh?.[code];
+  if (fromLast !== undefined && Number.isFinite(fromLast)) return fromLast;
+  return DEFAULT_GROUND_SPEEDS_KMH[code] ?? 4;
+}
+
+function graphRebuildFieldsetHtml(): string {
+  const rows = TEEKATE_CODES.map((code) => {
+    const v = groundSpeedInputValue(code);
+    const label = TEEKATE_LABEL_ET[code] ?? `Teekate ${code}`;
+    return `      <div class="waypoint-row">
+        <label for="teekate-speed-${code}">${label} (${code}) — km/h</label>
+        <input type="number" id="teekate-speed-${code}" min="0.1" max="50" step="0.1" value="${v}" />
+      </div>`;
+  }).join("\n");
+  return `<fieldset class="graph-rebuild-fieldset">
+    <legend>Teekate kiirus (km/h)</legend>
+${rows}
+    <button type="button" class="recompute-btn" id="btn-rebuild-graph">Ehita graaf uuesti</button>
+    <p class="panel-note" id="rebuild-graph-status" aria-live="polite"></p>
+    <p class="panel-note recompute-hint">Taasehitab graafi ja arvutab marsruudi API kaudu (kohalikus dev-is Vite middleware; tootmises Fly.io server).</p>
+  </fieldset>`;
+}
+
+function graphRebuildBlock(): string {
+  return graphRebuildFieldsetHtml();
+}
+
+const recomputeBlock = `<div class="recompute-wrap">
       <button type="button" class="recompute-btn" id="btn-recompute">Arvuta marsruut uuesti</button>
       <p class="panel-note" id="recompute-status" aria-live="polite"></p>
-      <p class="panel-note recompute-hint">Käivitab <code>route:compute</code> dev serveris (kirjutab <code>public/</code>).</p>
-    </div>`
-  : "";
+      <p class="panel-note recompute-hint">Kasutab API-t (kohalikus dev-is Vite middleware; tootmises <code>VITE_API_URL</code>).</p>
+    </div>`;
 
 function clearRouteLayers(): void {
   if (routePolyline) {
@@ -145,6 +235,17 @@ function effectiveWalkingBudgetS(params: {
   const breakRatio = breakDur / breakInt;
   const denom = 1 + breakRatio + sleepRatio;
   return Math.floor(totalS / denom);
+}
+
+function readGroundSpeedsKmhFromPanel(): Record<number, number> {
+  const out: Record<number, number> = {};
+  for (const code of TEEKATE_CODES) {
+    const el = panel.querySelector<HTMLInputElement>(`#teekate-speed-${code}`);
+    if (!el) continue;
+    const n = Number(el.value);
+    if (Number.isFinite(n) && n > 0) out[code] = n;
+  }
+  return out;
 }
 
 function readPanelEffectiveWalkingBudgetS(): number | undefined {
@@ -201,9 +302,10 @@ function updateBudgetSummary(): void {
   });
   const sleepIntS = Math.max(60, sleepInt * 3600);
   const breakIntS = Math.max(60, breakInt * 60);
-  const nSleep = Math.floor(walkingS / sleepIntS);
+  const nSleep = walkingS + 1e-6 >= sleepIntS ? 1 : 0;
   const nBreak = Math.floor(walkingS / breakIntS);
-  el.textContent = `Hinnanguline käimisaeg: ${(walkingS / 3600).toFixed(2)} h (kokku ${totalH.toFixed(1)} h) · ~${nSleep} ööbimist · ~${nBreak} pausi`;
+  const sleepPhrase = nSleep === 1 ? "1 ööbimine" : "0 ööbimist";
+  el.textContent = `Hinnanguline käimisaeg: ${(walkingS / 3600).toFixed(2)} h (kokku ${totalH.toFixed(1)} h) · ${sleepPhrase} · ~${nBreak} pausi`;
 }
 
 const GPX_TIME_EPOCH_MS = Date.UTC(2000, 0, 1, 0, 0, 0, 0);
@@ -240,26 +342,24 @@ function collectPlannedWaypoints(
   const breakIntS = Math.max(60, breakIntMin * 60);
   if (times && coordsLonLat.length === times.length) {
     if (showSleep) {
-      for (let k = 1; k * sleepIntS <= maxWalkS + 1e-6; k++) {
-        const t = k * sleepIntS;
+      const t = sleepIntS;
+      if (t <= maxWalkS + 1e-6) {
         const pos = positionAtTime(times, coordsLonLat, t);
-        if (!pos) continue;
-        const [lon, lat] = pos;
-        wpts.push({
-          lat,
-          lon,
-          name: `Ööbimine (${(t / 3600).toFixed(1)} h käimisest)`,
-          sym: "Campground",
-        });
+        if (pos) {
+          const [lon, lat] = pos;
+          wpts.push({
+            lat,
+            lon,
+            name: `Ööbimine (${(t / 3600).toFixed(1)} h käimisest)`,
+            sym: "Campground",
+          });
+        }
       }
     }
     if (showBreak) {
       for (let k = 1; k * breakIntS <= maxWalkS + 1e-6; k++) {
         const t = k * breakIntS;
-        if (showSleep) {
-          const rem = t % sleepIntS;
-          if (rem < 1 || rem > sleepIntS - 1) continue;
-        }
+        if (showSleep && Math.abs(t - sleepIntS) < 1) continue;
         const pos = positionAtTime(times, coordsLonLat, t);
         if (!pos) continue;
         const [lon, lat] = pos;
@@ -336,8 +436,67 @@ ${trkpts}
 `;
 }
 
+function attachGraphRebuildHandler(): void {
+  const btn = panel.querySelector<HTMLButtonElement>("#btn-rebuild-graph");
+  const status = panel.querySelector<HTMLElement>("#rebuild-graph-status");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    if (status) {
+      status.textContent = "";
+      status.hidden = true;
+    }
+    btn.disabled = true;
+    try {
+      const groundSpeedsKmh = readGroundSpeedsKmhFromPanel();
+      if (Object.keys(groundSpeedsKmh).length === 0) {
+        throw new Error("Sisesta vähemalt üks kehtiv teekate kiirus (km/h).");
+      }
+      const walkingS = readPanelEffectiveWalkingBudgetS();
+      const body: {
+        groundSpeedsKmh: Record<number, number>;
+        timeBudgetS?: number;
+        startLon: number;
+        startLat: number;
+      } = {
+        groundSpeedsKmh,
+        startLon: userStartLon,
+        startLat: userStartLat,
+      };
+      if (walkingS !== undefined) body.timeBudgetS = walkingS;
+      const res = await fetch(apiUrl("/api/rebuild-graph"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        route?: FeatureCollection;
+      };
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      lastGroundSpeedsKmh = readGroundSpeedsKmhFromPanel();
+      if (data.route) {
+        renderRouteFromFeatureCollection(data.route);
+      } else {
+        await loadRoute({ bustCache: true });
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (status) {
+        status.textContent = msg;
+        status.hidden = false;
+      } else {
+        alert(msg);
+      }
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
 function attachRecomputeHandler(): void {
-  if (!import.meta.env.DEV) return;
   const btn = panel.querySelector<HTMLButtonElement>("#btn-recompute");
   const status = panel.querySelector<HTMLElement>("#recompute-status");
   if (!btn) return;
@@ -349,16 +508,33 @@ function attachRecomputeHandler(): void {
     btn.disabled = true;
     try {
       const walkingS = readPanelEffectiveWalkingBudgetS();
-      const q =
-        walkingS !== undefined
-          ? `?timeBudgetS=${encodeURIComponent(String(walkingS))}`
-          : "";
-      const res = await fetch(`/api/recompute-route${q}`, { method: "POST" });
-      const data = (await res.json()) as { ok?: boolean; error?: string };
+      const body: {
+        timeBudgetS?: number;
+        startLon: number;
+        startLat: number;
+      } = {
+        startLon: userStartLon,
+        startLat: userStartLat,
+      };
+      if (walkingS !== undefined) body.timeBudgetS = walkingS;
+      const res = await fetch(apiUrl("/api/recompute-route"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        route?: FeatureCollection;
+      };
       if (!res.ok || !data.ok) {
         throw new Error(data.error || `HTTP ${res.status}`);
       }
-      await loadRoute({ bustCache: true });
+      if (data.route) {
+        renderRouteFromFeatureCollection(data.route);
+      } else {
+        await loadRoute({ bustCache: true });
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (status) {
@@ -526,24 +702,22 @@ function redrawWaypoints(
   const maxT = travelTimeS;
 
   if (times && times.length === coordsLonLat.length && showSleep) {
-    for (let k = 1; k * sleepS <= maxT + 1e-6; k++) {
-      const t = k * sleepS;
+    const t = sleepS;
+    if (t <= maxT + 1e-6) {
       const pos = positionAtTime(times, coordsLonLat, t);
-      if (!pos) continue;
-      const [lon, lat] = pos;
-      L.marker([lat, lon], { icon: divWaypointIcon("sleep", "Ö") })
-        .bindPopup(`Ööbimine (~${(t / 3600).toFixed(1)} h käimisest)`)
-        .addTo(layer);
+      if (pos) {
+        const [lon, lat] = pos;
+        L.marker([lat, lon], { icon: divWaypointIcon("sleep", "Ö") })
+          .bindPopup(`Ööbimine (~${(t / 3600).toFixed(1)} h käimisest)`)
+          .addTo(layer);
+      }
     }
   }
 
   if (times && times.length === coordsLonLat.length && showBreak) {
     for (let k = 1; k * breakS <= maxT + 1e-6; k++) {
       const t = k * breakS;
-      if (showSleep) {
-        const rem = t % sleepS;
-        if (rem < 1 || rem > sleepS - 1) continue;
-      }
+      if (showSleep && Math.abs(t - sleepS) < 1) continue;
       const pos = positionAtTime(times, coordsLonLat, t);
       if (!pos) continue;
       const [lon, lat] = pos;
@@ -564,33 +738,15 @@ function redrawWaypoints(
   layer.addTo(map);
 }
 
-async function loadRoute(options?: { bustCache?: boolean }): Promise<void> {
+function renderRouteFromFeatureCollection(fc: FeatureCollection): void {
   clearRouteLayers();
-
-  const base = import.meta.env.BASE_URL;
-  const geoUrl = options?.bustCache
-    ? `${base}route.geojson?t=${Date.now()}`
-    : `${base}route.geojson`;
-
-  let fc: FeatureCollection;
-  try {
-    const res = await fetch(geoUrl);
-    if (!res.ok) throw new Error(String(res.status));
-    fc = (await res.json()) as FeatureCollection;
-  } catch {
-    panel.innerHTML = `${recomputeBlock}
-      <p class="msg">Puudub <code>public/route.geojson</code>. Käivita:</p>
-      <pre>yarn etak:graph\nyarn route:compute</pre>
-      <p>(eeldab <code>data/etak-roads.geojson</code> — lisa <code>yarn etak:download</code>)</p>`;
-    attachRecomputeHandler();
-    return;
-  }
 
   const lineFeat = fc.features.find((f) => f.geometry?.type === "LineString") as
     | Feature
     | undefined;
   if (!lineFeat || lineFeat.geometry?.type !== "LineString") {
-    panel.innerHTML = `${recomputeBlock}<p class="msg">Vigane route.geojson</p>`;
+    panel.innerHTML = `${graphRebuildBlock()}${recomputeBlock}<p class="msg">Vigane marsruudi GeoJSON</p>`;
+    attachGraphRebuildHandler();
     attachRecomputeHandler();
     return;
   }
@@ -600,6 +756,18 @@ async function loadRoute(options?: { bustCache?: boolean }): Promise<void> {
   );
   const coordsLatLng = line.coordinates.map(([lon, lat]) => [lat, lon] as L.LatLngExpression);
   const props = (lineFeat.properties ?? {}) as Record<string, unknown>;
+
+  const startProp = props.start as { lon?: unknown; lat?: unknown } | undefined;
+  if (
+    startProp &&
+    typeof startProp === "object" &&
+    typeof startProp.lon === "number" &&
+    typeof startProp.lat === "number"
+  ) {
+    userStartLon = startProp.lon;
+    userStartLat = startProp.lat;
+    syncStartMarkerFromUser();
+  }
 
   routePolyline = L.polyline(coordsLatLng, {
     color: "#c62828",
@@ -634,6 +802,8 @@ async function loadRoute(options?: { bustCache?: boolean }): Promise<void> {
 
   panel.innerHTML = `
     <h1>Marsruut</h1>
+    ${API_SETUP_NOTE}
+    ${graphRebuildBlock()}
     ${recomputeBlock}
     <dl>
       <dt>Sirgjooneline kaugus</dt><dd>${straightKm.toFixed(2)} km</dd>
@@ -651,7 +821,7 @@ async function loadRoute(options?: { bustCache?: boolean }): Promise<void> {
       </div>
       <p class="budget-summary" id="budget-summary"></p>
       <div class="waypoint-row">
-        <label for="sleep-interval-h">Ööbimine iga (h käimist)</label>
+        <label for="sleep-interval-h">Ööbimine peale (h käimist)</label>
         <input type="number" id="sleep-interval-h" min="0.5" max="48" step="0.5" value="8" />
       </div>
       <div class="waypoint-row">
@@ -734,8 +904,32 @@ async function loadRoute(options?: { bustCache?: boolean }): Promise<void> {
     refreshMarkers();
   }
 
+  attachGraphRebuildHandler();
   attachRecomputeHandler();
   attachExportGpxHandler();
+}
+
+async function loadRoute(options?: { bustCache?: boolean }): Promise<void> {
+  clearRouteLayers();
+
+  const base = import.meta.env.BASE_URL;
+  const geoUrl = options?.bustCache
+    ? `${base}route.geojson?t=${Date.now()}`
+    : `${base}route.geojson`;
+
+  try {
+    const res = await fetch(geoUrl);
+    if (!res.ok) throw new Error(String(res.status));
+    const fc = (await res.json()) as FeatureCollection;
+    renderRouteFromFeatureCollection(fc);
+  } catch {
+    panel.innerHTML = `${graphRebuildBlock()}${recomputeBlock}
+      <p class="msg">Puudub <code>public/route.geojson</code>. Käivita:</p>
+      <pre>yarn etak:graph\nyarn route:compute</pre>
+      <p>(eeldab <code>data/etak-roads.geojson</code> — lisa <code>yarn etak:download</code>)</p>`;
+    attachGraphRebuildHandler();
+    attachRecomputeHandler();
+  }
 }
 
 void loadRoute();

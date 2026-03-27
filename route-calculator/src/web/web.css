@@ -222,3 +222,17 @@ body {
   font-size: 0.8rem;
   margin-top: 0.35rem !important;
 }
+
+.start-point-marker {
+  background: none;
+  border: none;
+}
+
+.start-point-marker-inner {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #1565c0;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}

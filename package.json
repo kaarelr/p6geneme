@@ -4,7 +4,14 @@
   "workspaces": [
     "route-calculator"
   ],
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
+    "build:api": "yarn workspace route-calculator run build:server",
+    "start:api": "yarn workspace route-calculator run server",
+    "build": "yarn build:api",
+    "start": "yarn start:api",
     "etak:download": "yarn workspace route-calculator etak:download",
     "etak:graph": "yarn workspace route-calculator etak:graph",
     "route:compute": "yarn workspace route-calculator route:compute",

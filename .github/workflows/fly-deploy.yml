@@ -1,0 +1,65 @@
+# Deploy the route API to Fly.io (Paketo buildpacks — see fly.toml at repo root).
+#
+# Required repository secret: FLY_API_TOKEN
+#   Create locally: fly tokens create deploy -x 999999h
+#   Or: https://fly.io/dashboard/personal/tokens
+#
+# Optional: ETAK_BBOX (same as Pages) to limit WFS fetch size on first cache miss.
+
+name: Deploy Fly API
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - ".github/workflows/fly-deploy.yml"
+      - "fly.toml"
+      - "package.json"
+      - "yarn.lock"
+      - "tsconfig.base.json"
+      - "route-calculator/**"
+
+concurrency:
+  group: fly-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: yarn
+
+      - name: Enable Yarn (Corepack)
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Cache ETAK raw data, graph, merged GeoJSON
+        uses: actions/cache@v4
+        with:
+          path: route-calculator/data
+          key: etak-data-${{ hashFiles('route-calculator/scripts/**/*.ts', 'route-calculator/src/config.ts', 'yarn.lock') }}
+
+      - name: Download ETAK, build graph, compute route
+        env:
+          ETAK_BBOX: ${{ secrets.ETAK_BBOX }}
+        run: |
+          yarn workspace route-calculator etak:download
+          yarn workspace route-calculator etak:graph
+          yarn workspace route-calculator route:compute
+
+      - name: Set up flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@v1
+
+      - name: Deploy to Fly
+        run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

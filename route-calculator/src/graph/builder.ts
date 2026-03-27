@@ -22,11 +22,13 @@ function parsePosition(p: Position): [number, number] {
 
 export interface BuildGraphOptions {
   speedMultiplier?: number;
+  /** km/h by teekate code; merged with `DEFAULT_GROUND_SPEEDS_KMH` in `speedMpsFromTeekate` */
+  groundSpeedsKmh?: Record<number, number>;
 }
 
 export interface BuildGraphResult {
   graph: CompactGraph;
-  /** Põhimaantee segments for 500 m buffer checks */
+  /** Highway (põhimaantee) segments for 500 m buffer checks */
   pohiSegments: Segment2D[];
 }
 
@@ -116,6 +118,7 @@ function pass2Feature(
   keyToId: Map<string, number>,
   directed: Map<string, number>,
   speedMultiplier: number,
+  groundSpeedsKmh: Record<number, number> | undefined,
 ): void {
   const geom = f.geometry;
   if (!geom || geom.type !== "LineString") return;
@@ -124,7 +127,7 @@ function pass2Feature(
   const tyyp = props.tyyp as number | undefined;
   const teekate = props.teekate as number | undefined;
   const restricted = isRestrictedTyyp(tyyp);
-  const mps = speedMpsFromTeekate(teekate, speedMultiplier);
+  const mps = speedMpsFromTeekate(teekate, speedMultiplier, groundSpeedsKmh);
   const coords = line.coordinates;
   for (let i = 0; i < coords.length - 1; i++) {
     const [x0, y0] = parsePosition(coords[i]!);
@@ -155,6 +158,7 @@ export function buildGraphFromGeoJson(
   options: BuildGraphOptions = {},
 ): BuildGraphResult {
   const speedMultiplier = options.speedMultiplier ?? 1;
+  const groundSpeedsKmh = options.groundSpeedsKmh;
   const keys = new Set<string>();
   const pohiSegments: Segment2D[] = [];
   for (const f of fc.features) pass1Feature(f, keys, pohiSegments);
@@ -164,7 +168,8 @@ export function buildGraphFromGeoJson(
   for (const k of keys) keyToId.set(k, nid++);
 
   const directed = new Map<string, number>();
-  for (const f of fc.features) pass2Feature(f, keyToId, directed, speedMultiplier);
+  for (const f of fc.features)
+    pass2Feature(f, keyToId, directed, speedMultiplier, groundSpeedsKmh);
 
   return finalizeGraphFromKeysAndDirected(keys, directed, pohiSegments);
 }
@@ -174,6 +179,7 @@ export async function buildGraphFromEtakPages(
   options: BuildGraphOptions = {},
 ): Promise<BuildGraphResult> {
   const speedMultiplier = options.speedMultiplier ?? 1;
+  const groundSpeedsKmh = options.groundSpeedsKmh;
   const files = (await readdir(rawDir))
     .filter((n) => /^page-\d+\.json$/.test(n))
     .sort((a, b) => Number(a.slice(5, -5)) - Number(b.slice(5, -5)));
@@ -200,7 +206,8 @@ export async function buildGraphFromEtakPages(
     const fc = JSON.parse(
       await readFile(join(rawDir, name), "utf8"),
     ) as FeatureCollection;
-    for (const f of fc.features) pass2Feature(f, keyToId, directed, speedMultiplier);
+    for (const f of fc.features)
+      pass2Feature(f, keyToId, directed, speedMultiplier, groundSpeedsKmh);
   }
 
   return finalizeGraphFromKeysAndDirected(keys, directed, pohiSegments);
