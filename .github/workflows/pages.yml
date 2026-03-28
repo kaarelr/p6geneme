@@ -3,6 +3,13 @@ name: Deploy GitHub Pages
 on:
   push:
     branches: [master]
+    paths:
+      - ".github/workflows/pages.yml"
+      - "trail-map/**"
+      - "route-calculator/**"
+      - "package.json"
+      - "yarn.lock"
+      - "tsconfig.base.json"
 
 permissions:
   contents: read
@@ -31,13 +38,19 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
-      - name: Cache ETAK raw data, graph, merged GeoJSON
+      - name: Cache ETAK data + computed route artifacts
+        id: etak-cache
         uses: actions/cache@v4
         with:
-          path: route-calculator/data
-          key: etak-data-${{ hashFiles('route-calculator/scripts/**/*.ts', 'route-calculator/src/config.ts', 'yarn.lock') }}
+          path: |
+            route-calculator/data
+            route-calculator/public/route.geojson
+            route-calculator/public/route.gpx
+          # v3: hash everything that affects download/graph/compute (excludes src/web, src/server for web-only cache hits)
+          key: etak-data-v3-${{ hashFiles('route-calculator/scripts/download-etak.ts', 'route-calculator/scripts/build-graph.ts', 'route-calculator/scripts/compute-route.ts', 'route-calculator/src/config.ts', 'route-calculator/src/etak/**/*.ts', 'route-calculator/src/geo/**/*.ts', 'route-calculator/src/graph/**/*.ts', 'route-calculator/src/gpx/**/*.ts', 'route-calculator/src/route/**/*.ts', 'yarn.lock') }}
 
       - name: Download ETAK, build graph, compute route
+        if: steps.etak-cache.outputs.cache-hit != 'true'
         env:
           # Optional repo secret: EPSG:3301 bbox "minX,minY,maxX,maxY" — limits WFS fetch (faster CI than all Estonia).
           ETAK_BBOX: ${{ secrets.ETAK_BBOX }}
@@ -49,8 +62,7 @@ jobs:
       - name: Build route-calculator
         env:
           CI: "true"
-          # Optional: base URL of the Fly.io route API (no trailing slash), e.g. https://p6geneme-route-api.fly.dev
-          # Set repository secret ROUTE_API_URL so the static app can call POST /api/recompute-route and /api/rebuild-graph.
+          # Optional: overrides hardcoded default in client when set (e.g. staging API).
           VITE_API_URL: ${{ secrets.ROUTE_API_URL }}
         run: yarn workspace route-calculator build
 
