@@ -9,7 +9,13 @@ import {
   START_LAT,
   START_LON,
 } from "../config.js";
-import { buildGraphFromEtakPages, buildGraphFromGeoJson } from "../graph/builder.js";
+import {
+  type BuildGraphOptions,
+  buildGraphFromEdgeCache,
+  buildGraphFromEtakPages,
+  buildGraphFromGeoJson,
+  reweightGraph,
+} from "../graph/builder.js";
 import { readGraphBin } from "../graph/graph-io.js";
 import type { CompactGraph } from "../graph/types.js";
 import type { Segment2D } from "../geo/buffer.js";
@@ -18,19 +24,31 @@ import {
   computeRouteFeatureCollection,
 } from "../route/compute.js";
 
-/** Project root for `data/` (defaults to cwd; set `DATA_ROOT` in production). */
+/** Data directory: set `DATA_ROOT` in production (e.g. /data on Fly volume).
+ *  Locally defaults to `<cwd>/data`. */
 function dataRoot(): string {
-  return process.env.DATA_ROOT ?? process.cwd();
+  return process.env.DATA_ROOT ?? join(process.cwd(), "data");
+}
+
+/** Path inside data root: strip leading `data/` from PATHS.* */
+function dataPath(segment: string): string {
+  return join(dataRoot(), segment.replace(/^data\//, ""));
 }
 
 let graph: CompactGraph | null = null;
 let pohiSegments: Segment2D[] = [];
+let edgeDist: Float64Array | null = null;
+let edgeTeekate: Int32Array | null = null;
 
 async function loadGraphFromDisk(): Promise<void> {
-  const root = dataRoot();
-  const graphPath = join(root, PATHS.graphBin);
-  graph = await readGraphBin(graphPath);
-  const pohiPath = join(root, "data/pohi-segments.json");
+  const graphPath = dataPath(PATHS.graphBin);
+  console.log(`Loading graph from ${graphPath} …`);
+  const loaded = await readGraphBin(graphPath);
+  graph = loaded.graph;
+  edgeDist = loaded.edgeDist;
+  edgeTeekate = loaded.edgeTeekate;
+  console.log(`Graph loaded (${graph.nodeCount} nodes).`);
+  const pohiPath = dataPath("pohi-segments.json");
   try {
     pohiSegments = JSON.parse(await readFile(pohiPath, "utf8")) as Segment2D[];
   } catch {
@@ -56,13 +74,14 @@ async function rebuildGraphFromDisk(
   groundSpeedsKmh?: Record<number, number>,
 ): Promise<void> {
   const root = dataRoot();
-  const mergedPath = join(root, PATHS.etakMerged);
-  const rawDir = join(root, PATHS.etakRawDir);
-  const pohiPath = join(root, "data/pohi-segments.json");
+  const mergedPath = dataPath(PATHS.etakMerged);
+  const rawDir = dataPath(PATHS.etakRawDir);
+  const pohiPath = dataPath("pohi-segments.json");
   const mult = Number.parseFloat(process.env.SPEED_MULTIPLIER ?? "1") || 1;
 
-  const buildOpts = {
+  const buildOpts: BuildGraphOptions = {
     speedMultiplier: mult,
+    collectSegmentRecords: false,
     ...(groundSpeedsKmh !== undefined ? { groundSpeedsKmh } : {}),
   };
 
@@ -77,8 +96,45 @@ async function rebuildGraphFromDisk(
 
   graph = built.graph;
   pohiSegments = built.pohiSegments;
-  await mkdir(join(root, "data"), { recursive: true });
+  edgeDist = built.edgeDist;
+  edgeTeekate = built.edgeTeekate;
+  await mkdir(root, { recursive: true });
   await writeFile(pohiPath, JSON.stringify(pohiSegments), "utf8");
+}
+
+/**
+ * Fast path: reweight in memory, or build from edge cache, or full ETAK parse.
+ */
+async function applyRebuildOrReweight(
+  groundSpeedsKmh?: Record<number, number>,
+): Promise<void> {
+  const mult = Number.parseFloat(process.env.SPEED_MULTIPLIER ?? "1") || 1;
+  const buildOpts: BuildGraphOptions = {
+    speedMultiplier: mult,
+    ...(groundSpeedsKmh !== undefined ? { groundSpeedsKmh } : {}),
+  };
+
+  if (
+    graph &&
+    edgeDist &&
+    edgeTeekate &&
+    groundSpeedsKmh !== undefined
+  ) {
+    reweightGraph(graph, edgeDist, edgeTeekate, buildOpts);
+    return;
+  }
+
+  const edgeCachePath = dataPath(PATHS.etakEdgesBin);
+  if (existsSync(edgeCachePath) && groundSpeedsKmh !== undefined) {
+    const built = await buildGraphFromEdgeCache(edgeCachePath, buildOpts);
+    graph = built.graph;
+    pohiSegments = built.pohiSegments;
+    edgeDist = built.edgeDist;
+    edgeTeekate = built.edgeTeekate;
+    return;
+  }
+
+  await rebuildGraphFromDisk(groundSpeedsKmh);
 }
 
 function parseTimeBudgetS(value: unknown): number | undefined {
@@ -191,7 +247,7 @@ async function main(): Promise<void> {
     }
 
     try {
-      await rebuildGraphFromDisk(groundSpeedsKmh);
+      await applyRebuildOrReweight(groundSpeedsKmh);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       reply.code(500);

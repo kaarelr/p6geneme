@@ -28,7 +28,7 @@ async function main(): Promise<void> {
   const lon = Number.parseFloat(process.env.START_LON ?? "") || START_LON;
   const lat = Number.parseFloat(process.env.START_LAT ?? "") || START_LAT;
 
-  const g = await readGraphBin(graphPath);
+  const { graph: g } = await readGraphBin(graphPath);
 
   let pohi: Segment2D[] = [];
   try {

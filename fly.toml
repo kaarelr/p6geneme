@@ -11,9 +11,9 @@ primary_region = "arn"
 [http_service]
   internal_port = 3000
   force_https = true
-  auto_stop_machines = "stop"
+  auto_stop_machines = "suspend"
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
 
   [[http_service.checks]]
     interval = "10s"
@@ -21,6 +21,10 @@ primary_region = "arn"
     grace_period = "30s"
     method = "GET"
     path = "/health"
+
+[mounts]
+  source = "data"
+  destination = "/data"
 
 [[vm]]
   memory = "1gb"

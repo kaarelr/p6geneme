@@ -186,7 +186,7 @@ body {
   border: 2px solid #fff;
 }
 
-.recompute-wrap {
+.recalculate-wrap {
   margin-bottom: 0.75rem;
   padding-bottom: 0.75rem;
   border-bottom: 1px solid #ddd;
@@ -208,16 +208,35 @@ body {
 }
 
 .recompute-btn:disabled {
-  opacity: 0.65;
+  opacity: 0.5;
+  cursor: default;
+}
+
+.recompute-btn.loading {
+  opacity: 0.7;
   cursor: wait;
 }
 
-.recompute-hint {
-  margin-top: 0.35rem !important;
-  margin-bottom: 0 !important;
+.recompute-btn.loading::after {
+  content: "";
+  display: inline-block;
+  width: 0.8em;
+  height: 0.8em;
+  margin-left: 0.4em;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  vertical-align: middle;
+  animation: btn-spin 0.6s linear infinite;
 }
 
-#recompute-status:not(:empty) {
+@keyframes btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+#recalculate-status:not(:empty) {
   color: #b33;
   font-size: 0.8rem;
   margin-top: 0.35rem !important;

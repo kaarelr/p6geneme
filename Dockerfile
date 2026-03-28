@@ -12,9 +12,7 @@ COPY route-calculator/src route-calculator/src
 
 RUN yarn build:api
 
-COPY route-calculator/data route-calculator/data
-
-ENV DATA_ROOT=/app/route-calculator
+ENV DATA_ROOT=/data
 ENV PORT=3000
 EXPOSE 3000
 

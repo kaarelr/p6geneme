@@ -3,6 +3,9 @@ import { GRAPH_VERSION, type CompactGraph } from "./types.js";
 
 const GRAPH_MAGIC = Buffer.from("ETK1");
 
+/** Graph file format version stored in file (v1 legacy; v2 adds per-edge metadata). */
+export const GRAPH_FILE_VERSION_V1 = 1;
+
 function u32(buf: Buffer, o: number): number {
   return buf.readUInt32LE(o);
 }
@@ -11,21 +14,41 @@ function writeU32(buf: Buffer, o: number, v: number): void {
   buf.writeUInt32LE(v >>> 0, o);
 }
 
-export async function writeGraphBin(path: string, g: CompactGraph): Promise<void> {
+export interface GraphBinLoadResult {
+  graph: CompactGraph;
+  edgeDist: Float64Array | null;
+  edgeTeekate: Int32Array | null;
+}
+
+export async function writeGraphBin(
+  path: string,
+  g: CompactGraph,
+  meta?: { edgeDist: Float64Array; edgeTeekate: Int32Array },
+): Promise<void> {
   const headerSize = 4 + 4 + 4 + 4;
   const nc = g.nodeCount;
   const ec = g.edgeTo.length;
+  const hasMeta =
+    meta !== undefined &&
+    meta.edgeDist.length === ec &&
+    meta.edgeTeekate.length === ec;
+  const fileVer = hasMeta ? GRAPH_VERSION : GRAPH_FILE_VERSION_V1;
+  let extra = 0;
+  if (hasMeta) {
+    extra = ec * 8 + ec * 4;
+  }
   const size =
     headerSize +
     nc * 8 * 2 +
     (nc + 1) * 4 +
     ec * 4 +
-    ec * 8;
+    ec * 8 +
+    extra;
   const buf = Buffer.allocUnsafe(size);
   let o = 0;
   GRAPH_MAGIC.copy(buf, o);
   o += 4;
-  writeU32(buf, o, GRAPH_VERSION);
+  writeU32(buf, o, fileVer);
   o += 4;
   writeU32(buf, o, nc);
   o += 4;
@@ -51,10 +74,20 @@ export async function writeGraphBin(path: string, g: CompactGraph): Promise<void
     buf.writeDoubleLE(g.edgeTime[i]!, o);
     o += 8;
   }
+  if (hasMeta) {
+    for (let i = 0; i < ec; i++) {
+      buf.writeDoubleLE(meta!.edgeDist[i]!, o);
+      o += 8;
+    }
+    for (let i = 0; i < ec; i++) {
+      writeU32(buf, o, meta!.edgeTeekate[i]! >>> 0);
+      o += 4;
+    }
+  }
   await writeFile(path, buf);
 }
 
-export async function readGraphBin(path: string): Promise<CompactGraph> {
+export async function readGraphBin(path: string): Promise<GraphBinLoadResult> {
   const buf = await readFile(path);
   if (buf.length < 16 || !buf.subarray(0, 4).equals(GRAPH_MAGIC)) {
     throw new Error(`Invalid graph file: ${path}`);
@@ -62,7 +95,9 @@ export async function readGraphBin(path: string): Promise<CompactGraph> {
   let o = 4;
   const ver = u32(buf, o);
   o += 4;
-  if (ver !== GRAPH_VERSION) throw new Error(`Unsupported graph version ${ver}`);
+  if (ver !== GRAPH_FILE_VERSION_V1 && ver !== GRAPH_VERSION) {
+    throw new Error(`Unsupported graph version ${ver}`);
+  }
   const nc = u32(buf, o);
   o += 4;
   const ec = u32(buf, o);
@@ -92,5 +127,32 @@ export async function readGraphBin(path: string): Promise<CompactGraph> {
     edgeTime[i] = buf.readDoubleLE(o);
     o += 8;
   }
-  return { nodeCount: nc, nodeX, nodeY, rowOffsets, edgeTo, edgeTime };
+  const graph: CompactGraph = {
+    nodeCount: nc,
+    nodeX,
+    nodeY,
+    rowOffsets,
+    edgeTo,
+    edgeTime,
+  };
+  if (ver === GRAPH_VERSION) {
+    const need = o + ec * 8 + ec * 4;
+    if (buf.length < need) {
+      throw new Error(
+        `Graph file v${ver} truncated: need ${need} bytes, have ${buf.length}`,
+      );
+    }
+    const edgeDist = new Float64Array(ec);
+    for (let i = 0; i < ec; i++) {
+      edgeDist[i] = buf.readDoubleLE(o);
+      o += 8;
+    }
+    const edgeTeekate = new Int32Array(ec);
+    for (let i = 0; i < ec; i++) {
+      edgeTeekate[i] = u32(buf, o) | 0;
+      o += 4;
+    }
+    return { graph, edgeDist, edgeTeekate };
+  }
+  return { graph, edgeDist: null, edgeTeekate: null };
 }

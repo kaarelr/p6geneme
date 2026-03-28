@@ -7,4 +7,5 @@ export interface CompactGraph {
   edgeTime: Float64Array;
 }
 
-export const GRAPH_VERSION = 1;
+/** v2 adds edgeDist + edgeTeekate after edgeTime for fast reweighting */
+export const GRAPH_VERSION = 2;

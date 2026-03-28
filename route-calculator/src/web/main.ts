@@ -126,18 +126,6 @@ function syncStartMarkerFromUser(): void {
   startMarker.setLatLng([userStartLat, userStartLon]);
 }
 
-startMarker.on("dragend", () => {
-  const ll = startMarker.getLatLng();
-  userStartLon = ll.lng;
-  userStartLat = ll.lat;
-});
-
-map.on("click", (e: L.LeafletMouseEvent) => {
-  userStartLon = e.latlng.lng;
-  userStartLat = e.latlng.lat;
-  startMarker.setLatLng(e.latlng);
-});
-
 L.control
   .layers(
     {
@@ -167,14 +155,124 @@ const TEEKATE_LABEL_ET: Record<number, string> = {
   [Teekate.Pinnas]: "Pinnas",
 };
 
-/** Last speeds used for graph rebuild; keeps inputs after panel re-render. */
-let lastGroundSpeedsKmh: Record<number, number> | null = null;
+/** Last successful API computation — drives dirty detection for "Arvuta uuesti". */
+interface ComputedState {
+  groundSpeedsKmh: Record<number, number>;
+  startLon: number;
+  startLat: number;
+  walkingBudgetS: number | undefined;
+}
+
+let lastComputedState: ComputedState | null = null;
+
+/** Persisted across panel re-renders so user input isn't lost. */
+const waypointInputs = {
+  totalBudgetH: 24,
+  sleepIntervalH: 8,
+  sleepDurationH: 6,
+  breakIntervalMin: 60,
+  breakDurationMin: 5,
+  showSleep: true,
+  showBreak: true,
+  showRoad: true,
+};
+
+function captureWaypointInputs(): void {
+  const n = (id: string, fallback: number): number => {
+    const v = Number(panel.querySelector<HTMLInputElement>(`#${id}`)?.value);
+    return Number.isFinite(v) ? v : fallback;
+  };
+  waypointInputs.totalBudgetH = n("total-budget-h", waypointInputs.totalBudgetH);
+  waypointInputs.sleepIntervalH = n("sleep-interval-h", waypointInputs.sleepIntervalH);
+  waypointInputs.sleepDurationH = n("sleep-duration-h", waypointInputs.sleepDurationH);
+  waypointInputs.breakIntervalMin = n("break-interval-min", waypointInputs.breakIntervalMin);
+  waypointInputs.breakDurationMin = n("break-duration-min", waypointInputs.breakDurationMin);
+  waypointInputs.showSleep = panel.querySelector<HTMLInputElement>("#show-sleep")?.checked ?? waypointInputs.showSleep;
+  waypointInputs.showBreak = panel.querySelector<HTMLInputElement>("#show-break")?.checked ?? waypointInputs.showBreak;
+  waypointInputs.showRoad = panel.querySelector<HTMLInputElement>("#show-road")?.checked ?? waypointInputs.showRoad;
+}
 
 function groundSpeedInputValue(code: number): number {
-  const fromLast = lastGroundSpeedsKmh?.[code];
+  const fromLast = lastComputedState?.groundSpeedsKmh[code];
   if (fromLast !== undefined && Number.isFinite(fromLast)) return fromLast;
   return DEFAULT_GROUND_SPEEDS_KMH[code] ?? 4;
 }
+
+function getCurrentGroundSpeedsKmh(): Record<number, number> {
+  const fromPanel = readGroundSpeedsKmhFromPanel();
+  const out: Record<number, number> = {};
+  for (const code of TEEKATE_CODES) {
+    const v = fromPanel[code];
+    out[code] =
+      v !== undefined && Number.isFinite(v) && v > 0
+        ? v
+        : (DEFAULT_GROUND_SPEEDS_KMH[code] ?? 4);
+  }
+  return out;
+}
+
+function getCurrentState(): ComputedState {
+  return {
+    groundSpeedsKmh: getCurrentGroundSpeedsKmh(),
+    startLon: userStartLon,
+    startLat: userStartLat,
+    walkingBudgetS: readPanelEffectiveWalkingBudgetS(),
+  };
+}
+
+function speedsEqual(
+  a: Record<number, number>,
+  b: Record<number, number>,
+): boolean {
+  for (const code of TEEKATE_CODES) {
+    if ((a[code] ?? 0) !== (b[code] ?? 0)) return false;
+  }
+  return true;
+}
+
+function computedStateEqual(a: ComputedState, b: ComputedState): boolean {
+  if (!speedsEqual(a.groundSpeedsKmh, b.groundSpeedsKmh)) return false;
+  if (a.startLon !== b.startLon || a.startLat !== b.startLat) return false;
+  if (a.walkingBudgetS !== b.walkingBudgetS) return false;
+  return true;
+}
+
+function isDirty(): boolean {
+  if (!lastComputedState) return true;
+  return !computedStateEqual(getCurrentState(), lastComputedState);
+}
+
+function needsGraphRebuild(): boolean {
+  if (!lastComputedState) return true;
+  return !speedsEqual(
+    getCurrentGroundSpeedsKmh(),
+    lastComputedState.groundSpeedsKmh,
+  );
+}
+
+function snapshotLastComputedState(): void {
+  lastComputedState = getCurrentState();
+}
+
+function updateRecalculateButton(): void {
+  const btn = panel.querySelector<HTMLButtonElement>("#btn-recalculate");
+  if (!btn) return;
+  btn.disabled = !isDirty();
+}
+
+startMarker.on("dragend", () => {
+  const ll = startMarker.getLatLng();
+  userStartLon = ll.lng;
+  userStartLat = ll.lat;
+  updateRecalculateButton();
+});
+
+map.on("click", (e: L.LeafletMouseEvent) => {
+  userStartLon = e.latlng.lng;
+  userStartLat = e.latlng.lat;
+  startMarker.setLatLng(e.latlng);
+  updateRecalculateButton();
+});
 
 function graphRebuildFieldsetHtml(): string {
   const rows = TEEKATE_CODES.map((code) => {
@@ -188,9 +286,6 @@ function graphRebuildFieldsetHtml(): string {
   return `<fieldset class="graph-rebuild-fieldset">
     <legend>Teekate kiirus (km/h)</legend>
 ${rows}
-    <button type="button" class="recompute-btn" id="btn-rebuild-graph">Ehita graaf uuesti</button>
-    <p class="panel-note" id="rebuild-graph-status" aria-live="polite"></p>
-    <p class="panel-note recompute-hint">Taasehitab graafi ja arvutab marsruudi API kaudu (kohalikus dev-is Vite middleware; tootmises Fly.io server).</p>
   </fieldset>`;
 }
 
@@ -198,11 +293,12 @@ function graphRebuildBlock(): string {
   return graphRebuildFieldsetHtml();
 }
 
-const recomputeBlock = `<div class="recompute-wrap">
-      <button type="button" class="recompute-btn" id="btn-recompute">Arvuta marsruut uuesti</button>
-      <p class="panel-note" id="recompute-status" aria-live="polite"></p>
-      <p class="panel-note recompute-hint">Kasutab API-t (kohalikus dev-is Vite middleware; tootmises <code>VITE_API_URL</code>).</p>
-    </div>`;
+function recalculateBlockHtml(): string {
+  return `<div class="recalculate-wrap">
+    <button type="button" class="recompute-btn" id="btn-recalculate">Arvuta uuesti</button>
+    <p class="panel-note" id="recalculate-status" aria-live="polite"></p>
+  </div>`;
+}
 
 function clearRouteLayers(): void {
   if (routePolyline) {
@@ -436,9 +532,22 @@ ${trkpts}
 `;
 }
 
-function attachGraphRebuildHandler(): void {
-  const btn = panel.querySelector<HTMLButtonElement>("#btn-rebuild-graph");
-  const status = panel.querySelector<HTMLElement>("#rebuild-graph-status");
+function attachRecalculateDirtyListeners(): void {
+  for (const code of TEEKATE_CODES) {
+    const el = panel.querySelector<HTMLInputElement>(`#teekate-speed-${code}`);
+    if (!el) continue;
+    el.addEventListener("input", () => {
+      updateRecalculateButton();
+    });
+    el.addEventListener("change", () => {
+      updateRecalculateButton();
+    });
+  }
+}
+
+function attachRecalculateHandler(): void {
+  const btn = panel.querySelector<HTMLButtonElement>("#btn-recalculate");
+  const status = panel.querySelector<HTMLElement>("#recalculate-status");
   if (!btn) return;
   btn.addEventListener("click", async () => {
     if (status) {
@@ -446,41 +555,81 @@ function attachGraphRebuildHandler(): void {
       status.hidden = true;
     }
     btn.disabled = true;
+    const originalText = btn.textContent;
+    btn.textContent = "Arvutan…";
+    btn.classList.add("loading");
     try {
       const groundSpeedsKmh = readGroundSpeedsKmhFromPanel();
       if (Object.keys(groundSpeedsKmh).length === 0) {
         throw new Error("Sisesta vähemalt üks kehtiv teekate kiirus (km/h).");
       }
       const walkingS = readPanelEffectiveWalkingBudgetS();
-      const body: {
-        groundSpeedsKmh: Record<number, number>;
-        timeBudgetS?: number;
-        startLon: number;
-        startLat: number;
-      } = {
-        groundSpeedsKmh,
-        startLon: userStartLon,
-        startLat: userStartLat,
-      };
-      if (walkingS !== undefined) body.timeBudgetS = walkingS;
-      const res = await fetch(apiUrl("/api/rebuild-graph"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = (await res.json()) as {
-        ok?: boolean;
-        error?: string;
-        route?: FeatureCollection;
-      };
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || `HTTP ${res.status}`);
-      }
-      lastGroundSpeedsKmh = readGroundSpeedsKmhFromPanel();
-      if (data.route) {
-        renderRouteFromFeatureCollection(data.route);
+      captureWaypointInputs();
+      const rebuild = needsGraphRebuild();
+      if (rebuild) {
+        const body: {
+          groundSpeedsKmh: Record<number, number>;
+          timeBudgetS?: number;
+          startLon: number;
+          startLat: number;
+        } = {
+          groundSpeedsKmh,
+          startLon: userStartLon,
+          startLat: userStartLat,
+        };
+        if (walkingS !== undefined) body.timeBudgetS = walkingS;
+        const res = await fetch(apiUrl("/api/rebuild-graph"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = (await res.json()) as {
+          ok?: boolean;
+          error?: string;
+          route?: FeatureCollection;
+        };
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || `HTTP ${res.status}`);
+        }
+        lastComputedState = {
+          groundSpeedsKmh,
+          startLon: userStartLon,
+          startLat: userStartLat,
+          walkingBudgetS: walkingS,
+        };
+        if (data.route) {
+          renderRouteFromFeatureCollection(data.route);
+        } else {
+          await loadRoute({ bustCache: true });
+        }
       } else {
-        await loadRoute({ bustCache: true });
+        const body: {
+          timeBudgetS?: number;
+          startLon: number;
+          startLat: number;
+        } = {
+          startLon: userStartLon,
+          startLat: userStartLat,
+        };
+        if (walkingS !== undefined) body.timeBudgetS = walkingS;
+        const res = await fetch(apiUrl("/api/recompute-route"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = (await res.json()) as {
+          ok?: boolean;
+          error?: string;
+          route?: FeatureCollection;
+        };
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || `HTTP ${res.status}`);
+        }
+        if (data.route) {
+          renderRouteFromFeatureCollection(data.route);
+        } else {
+          await loadRoute({ bustCache: true });
+        }
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -491,60 +640,10 @@ function attachGraphRebuildHandler(): void {
         alert(msg);
       }
     } finally {
+      btn.textContent = originalText;
+      btn.classList.remove("loading");
       btn.disabled = false;
-    }
-  });
-}
-
-function attachRecomputeHandler(): void {
-  const btn = panel.querySelector<HTMLButtonElement>("#btn-recompute");
-  const status = panel.querySelector<HTMLElement>("#recompute-status");
-  if (!btn) return;
-  btn.addEventListener("click", async () => {
-    if (status) {
-      status.textContent = "";
-      status.hidden = true;
-    }
-    btn.disabled = true;
-    try {
-      const walkingS = readPanelEffectiveWalkingBudgetS();
-      const body: {
-        timeBudgetS?: number;
-        startLon: number;
-        startLat: number;
-      } = {
-        startLon: userStartLon,
-        startLat: userStartLat,
-      };
-      if (walkingS !== undefined) body.timeBudgetS = walkingS;
-      const res = await fetch(apiUrl("/api/recompute-route"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = (await res.json()) as {
-        ok?: boolean;
-        error?: string;
-        route?: FeatureCollection;
-      };
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || `HTTP ${res.status}`);
-      }
-      if (data.route) {
-        renderRouteFromFeatureCollection(data.route);
-      } else {
-        await loadRoute({ bustCache: true });
-      }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      if (status) {
-        status.textContent = msg;
-        status.hidden = false;
-      } else {
-        alert(msg);
-      }
-    } finally {
-      btn.disabled = false;
+      updateRecalculateButton();
     }
   });
 }
@@ -745,9 +844,10 @@ function renderRouteFromFeatureCollection(fc: FeatureCollection): void {
     | Feature
     | undefined;
   if (!lineFeat || lineFeat.geometry?.type !== "LineString") {
-    panel.innerHTML = `${graphRebuildBlock()}${recomputeBlock}<p class="msg">Vigane marsruudi GeoJSON</p>`;
-    attachGraphRebuildHandler();
-    attachRecomputeHandler();
+    panel.innerHTML = `${graphRebuildBlock()}${recalculateBlockHtml()}<p class="msg">Vigane marsruudi GeoJSON</p>`;
+    attachRecalculateHandler();
+    attachRecalculateDirtyListeners();
+    updateRecalculateButton();
     return;
   }
   const line = lineFeat.geometry as LineString;
@@ -804,7 +904,7 @@ function renderRouteFromFeatureCollection(fc: FeatureCollection): void {
     <h1>Marsruut</h1>
     ${API_SETUP_NOTE}
     ${graphRebuildBlock()}
-    ${recomputeBlock}
+    ${recalculateBlockHtml()}
     <dl>
       <dt>Sirgjooneline kaugus</dt><dd>${straightKm.toFixed(2)} km</dd>
       <dt>Teekonna pikkus</dt><dd>${pathKm.toFixed(2)} km</dd>
@@ -817,35 +917,34 @@ function renderRouteFromFeatureCollection(fc: FeatureCollection): void {
       <legend>Aeg ja peatused</legend>
       <div class="waypoint-row">
         <label for="total-budget-h">Koguaeg (h)</label>
-        <input type="number" id="total-budget-h" min="1" max="168" step="0.5" value="24" />
+        <input type="number" id="total-budget-h" value="${waypointInputs.totalBudgetH}" readonly />
       </div>
       <p class="budget-summary" id="budget-summary"></p>
       <div class="waypoint-row">
         <label for="sleep-interval-h">Ööbimine peale (h käimist)</label>
-        <input type="number" id="sleep-interval-h" min="0.5" max="48" step="0.5" value="8" />
+        <input type="number" id="sleep-interval-h" min="0.5" max="48" step="0.5" value="${waypointInputs.sleepIntervalH}" />
       </div>
       <div class="waypoint-row">
         <label for="sleep-duration-h">Ööbimise kestus (h)</label>
-        <input type="number" id="sleep-duration-h" min="0" max="24" step="0.5" value="6" />
+        <input type="number" id="sleep-duration-h" min="0" max="24" step="0.5" value="${waypointInputs.sleepDurationH}" />
       </div>
       <div class="waypoint-row">
         <label for="break-interval-min">Paus iga (min käimist)</label>
-        <input type="number" id="break-interval-min" min="15" max="720" step="15" value="60" />
+        <input type="number" id="break-interval-min" min="15" max="720" step="15" value="${waypointInputs.breakIntervalMin}" />
       </div>
       <div class="waypoint-row">
         <label for="break-duration-min">Pausi kestus (min)</label>
-        <input type="number" id="break-duration-min" min="0" max="180" step="5" value="5" />
+        <input type="number" id="break-duration-min" min="0" max="180" step="5" value="${waypointInputs.breakDurationMin}" />
       </div>
       <div class="waypoint-checks">
-        <label><input type="checkbox" id="show-sleep" checked /> Ööbimised kaardil</label>
-        <label><input type="checkbox" id="show-break" checked /> Pausid kaardil</label>
-        <label><input type="checkbox" id="show-road" checked /> Põhimaantee hoiatused</label>
+        <label><input type="checkbox" id="show-sleep"${waypointInputs.showSleep ? " checked" : ""} /> Ööbimised kaardil</label>
+        <label><input type="checkbox" id="show-break"${waypointInputs.showBreak ? " checked" : ""} /> Pausid kaardil</label>
+        <label><input type="checkbox" id="show-road"${waypointInputs.showRoad ? " checked" : ""} /> Põhimaantee hoiatused</label>
       </div>
       <button type="button" class="export-gpx-btn" id="btn-export-gpx">Ekspordi GPX</button>
     </fieldset>
   `;
 
-  const elTotalBudget = panel.querySelector<HTMLInputElement>("#total-budget-h")!;
   const elSleepH = panel.querySelector<HTMLInputElement>("#sleep-interval-h")!;
   const elSleepDur = panel.querySelector<HTMLInputElement>("#sleep-duration-h")!;
   const elBreakIntMin = panel.querySelector<HTMLInputElement>("#break-interval-min")!;
@@ -878,7 +977,6 @@ function renderRouteFromFeatureCollection(fc: FeatureCollection): void {
   }
 
   const budgetInputs = [
-    elTotalBudget,
     elSleepH,
     elSleepDur,
     elBreakIntMin,
@@ -887,9 +985,11 @@ function renderRouteFromFeatureCollection(fc: FeatureCollection): void {
   for (const el of budgetInputs) {
     el.addEventListener("input", () => {
       updateBudgetSummary();
+      updateRecalculateButton();
     });
     el.addEventListener("change", () => {
       updateBudgetSummary();
+      updateRecalculateButton();
     });
   }
 
@@ -904,9 +1004,11 @@ function renderRouteFromFeatureCollection(fc: FeatureCollection): void {
     refreshMarkers();
   }
 
-  attachGraphRebuildHandler();
-  attachRecomputeHandler();
+  attachRecalculateHandler();
+  attachRecalculateDirtyListeners();
   attachExportGpxHandler();
+  snapshotLastComputedState();
+  updateRecalculateButton();
 }
 
 async function loadRoute(options?: { bustCache?: boolean }): Promise<void> {
@@ -923,12 +1025,13 @@ async function loadRoute(options?: { bustCache?: boolean }): Promise<void> {
     const fc = (await res.json()) as FeatureCollection;
     renderRouteFromFeatureCollection(fc);
   } catch {
-    panel.innerHTML = `${graphRebuildBlock()}${recomputeBlock}
+    panel.innerHTML = `${graphRebuildBlock()}${recalculateBlockHtml()}
       <p class="msg">Puudub <code>public/route.geojson</code>. Käivita:</p>
       <pre>yarn etak:graph\nyarn route:compute</pre>
       <p>(eeldab <code>data/etak-roads.geojson</code> — lisa <code>yarn etak:download</code>)</p>`;
-    attachGraphRebuildHandler();
-    attachRecomputeHandler();
+    attachRecalculateHandler();
+    attachRecalculateDirtyListeners();
+    updateRecalculateButton();
   }
 }
 

@@ -19,6 +19,8 @@ export const PATHS = {
   etakRawDir: "data/etak-raw",
   etakMerged: "data/etak-roads.geojson",
   graphBin: "data/graph.bin",
+  /** Compact segment dump for fast rebuilds without JSON parse */
+  etakEdgesBin: "data/etak-edges.bin",
   routeGeojson: "public/route.geojson",
   routeGpx: "public/route.gpx",
   checkpoint: "data/etak-raw/checkpoint.txt",
