@@ -6,18 +6,17 @@ import { DEFAULT_GROUND_SPEEDS_KMH } from "../etak/speed.js";
 import { Teekate } from "../etak/types.js";
 import "./web.css";
 
-const API_BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
+/** Production route API on Fly. Override with VITE_API_URL for local dev (e.g. http://localhost:3000). */
+const DEFAULT_ROUTE_API_BASE = "https://p6geneme-route-api.fly.dev";
+
+const API_BASE = (
+  import.meta.env.VITE_API_URL?.trim() || DEFAULT_ROUTE_API_BASE
+).replace(/\/$/, "");
 
 function apiUrl(path: string): string {
   const p = path.startsWith("/") ? path : `/${path}`;
   return `${API_BASE}${p}`;
 }
-
-/** Shown on production static build when API base URL was not baked in (GitHub Pages cannot host /api). */
-const API_SETUP_NOTE =
-  import.meta.env.DEV || API_BASE
-    ? ""
-    : `<p class="panel-note">API nupud vajavad <code>VITE_API_URL</code> (nt Fly.io); määra GitHub secret <code>ROUTE_API_URL</code> ja ehita uuesti.</p>`;
 
 /** User-chosen start (map click / drag); sent to API on recompute / rebuild. */
 let userStartLon = START_LON;
@@ -902,7 +901,6 @@ function renderRouteFromFeatureCollection(fc: FeatureCollection): void {
 
   panel.innerHTML = `
     <h1>Marsruut</h1>
-    ${API_SETUP_NOTE}
     ${graphRebuildBlock()}
     ${recalculateBlockHtml()}
     <dl>
